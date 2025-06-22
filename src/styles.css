@@ -52,7 +52,7 @@ body.dark-mode {
     --input-border: rgba(90, 90, 90, 0.6);
     --progress-bar-bg: #444;
     --active-link-bg: #3A3A3A;
-    --active-link-color: #F0F0F0;
+    --active-link-color: #F0F0E0;
     --checkbox-bg: #3A3A3A;
     --pomodoro-bg-stroke: #555;
     --table-header-bg: rgba(60, 60, 60, 0.7);
@@ -664,6 +664,7 @@ body {
     gap: 20px;
     width: 100%;
     padding: 20px 0;
+    align-items: center;
 }
 
 /* .calendar-page.active { display: flex; } */
@@ -961,6 +962,7 @@ body.dark-mode .input-group select {
     gap: 25px;
     width: 100%;
     padding: 20px 0;
+    align-items: center;
 }
 
 /* .plan-page.active { display: flex; } */

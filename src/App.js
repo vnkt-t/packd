@@ -1,5 +1,5 @@
 import React, { useState, useEffect, createContext, useContext, useCallback } from 'react';
-import { initializeApp, getApps, getApp } from 'firebase/app'; // Added getApps, getApp
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
   signInAnonymously,
@@ -22,8 +22,64 @@ import {
   deleteDoc
 } from 'firebase/firestore';
 
+// IMPORTANT: Ensure you have a LoginPage component.
+// If you have a separate LoginPage.js file, import it like this:
+// import LoginPage from './LoginPage';
+// For demonstration, a minimal placeholder is provided below.
+function LoginPage({ auth, setAuthError }) {
+  const handleGoogleSignIn = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+      setAuthError(null); // Clear any previous errors on successful sign-in
+    } catch (error) {
+      console.error("Google Sign-In Error:", error);
+      setAuthError(`Google Sign-In failed: ${error.message}`);
+    }
+  };
+
+  const handleAnonymousSignIn = async () => {
+    try {
+      await signInAnonymously(auth);
+      setAuthError(null); // Clear any previous errors
+    } catch (error) {
+      console.error("Anonymous Sign-In Error:", error);
+      setAuthError(`Anonymous Sign-In failed: ${error.message}`);
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
+      <div className="p-8 rounded-lg shadow-xl bg-white dark:bg-gray-800 text-center max-w-sm mx-4">
+        <h2 className="text-2xl font-bold mb-6 text-gray-900 dark:text-gray-100">Welcome to PrepPack!</h2>
+        <p className="text-gray-700 dark:text-gray-300 mb-6">Please sign in to continue.</p>
+
+        <button
+          onClick={handleGoogleSignIn}
+          className="w-full bg-blue-600 text-white py-3 px-6 rounded-lg text-lg font-semibold hover:bg-blue-700 transition-colors duration-200 mb-4 flex items-center justify-center space-x-2"
+        >
+          <svg className="w-5 h-5" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M44.5 24C44.5 22.0294 44.3168 20.0894 43.9577 18.1882H24V29.7765H35.4059C34.7941 33.1529 32.7412 35.8588 29.7765 37.8588V44.5H38.2941C42.8706 40.2353 44.5 33.9176 44.5 24Z" fill="#4285F4"/>
+            <path d="M24 44.5C29.4176 44.5 33.9882 42.6118 37.1529 39.5471L29.7765 37.8588C27.9059 39.1882 26.0353 39.8824 24 39.8824C19.8235 39.8824 16.2 37.0824 14.8647 33.1529H6.11765V39.5471C9.69412 42.8706 16.3176 44.5 24 44.5Z" fill="#34A853"/>
+            <path d="M14.8647 33.1529C14.1882 31.2824 13.8824 29.4118 13.8824 27.5294C13.8824 25.6471 14.1882 23.7765 14.8647 21.9059V15.5H6.11765C4.05882 19.4353 3 23.6471 3 27.5294C3 31.4118 4.05882 35.6235 6.11765 39.5471L14.8647 33.1529Z" fill="#FBBC05"/>
+            <path d="M24 8.11765C27.5294 8.11765 30.6941 9.75294 33.0588 12.1176L38.2941 6.88235C33.9882 2.61176 29.4176 1 24 1C16.3176 1 9.69412 2.61176 6.11765 5.93529L14.8647 15.5C16.2 11.5647 19.8235 8.11765 24 8.11765Z" fill="#EA4335"/>
+          </svg>
+          Sign in with Google
+        </button>
+
+        <button
+          onClick={handleAnonymousSignIn}
+          className="w-full bg-gray-500 text-white py-3 px-6 rounded-lg text-lg font-semibold hover:bg-gray-600 transition-colors duration-200"
+        >
+          Continue Anonymously
+        </button>
+        {setAuthError && <p className="text-red-500 text-sm mt-4">{setAuthError}</p>}
+      </div>
+    </div>
+  );
+}
+
 // Define Firebase configuration.
-// IMPORTANT: Replace these with your actual Firebase project configuration from your Firebase Console.
 const firebaseConfig = {
   apiKey: "AIzaSyCKBlAfBY7QIEv3rkRglDANkOqph67TSmo",
   authDomain: "packd-2e657.firebaseapp.com",
@@ -172,7 +228,7 @@ function MainDashboardApp() {
     let p=percent<0?percent*-1:percent;
     let R=f>>16;
     let G=(f>>8)&0x00FF;
-    let B=f&0x0000FF;
+    let B=(f&0x0000FF);
     return "#"+(0x1000000+(Math.round((t-R)*p)+R)*0x10000+(Math.round((t-G)*p)+G)*0x100+(Math.round((t-B)*p)+B)).toString(16).slice(1);
   }
 
@@ -268,6 +324,7 @@ function MainDashboardApp() {
   // If authenticated, show the main dashboard
   return (
     <>
+      {/* Moved globalStyles import to be external CSS file */}
       <div className="flex w-full min-h-screen">
         {/* Sidebar */}
         <aside className="sidebar">
@@ -666,7 +723,7 @@ function MainDashboardApp() {
                         <label htmlFor="habitGoal">Goal (e.g., 30 mins)</label>
                         <input type="text" id="habitGoal" placeholder="e.g., 30 mins, 5 pages" />
                     </div>
-                    <button className="add-button">Add Habit</button> {/* Corrected </mutton> to </button> */}
+                    <button className="add-button">Add Habit</button>
                 </div>
             </div>
           )}
@@ -880,3 +937,4 @@ function MainDashboardApp() {
     </>
   );
 }
+
