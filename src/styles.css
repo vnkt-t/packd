@@ -215,9 +215,7 @@ body {
     border-color: var(--border-color-medium);
 }
 
-.welcome-message {
-    /* display: none; */ /* React will control visibility */
-}
+
 .welcome-message .productive-text {
     color: var(--color-green);
 }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
+import './styles.css';
 import {
   getAuth,
   signInAnonymously,
@@ -938,3 +939,5 @@ function MainDashboardApp() {
   );
 }
 
+// Export the main component
+export default MainDashboardApp;
