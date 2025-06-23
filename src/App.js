@@ -1,4 +1,4 @@
-import React, { useState, useEffect, createContext, useContext, useCallback } from 'react';
+import React, { useState, useEffect, createContext, useContext, useCallback, useRef } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
@@ -59,14 +59,18 @@ function FirebaseProvider({ children }) {
   const [userId, setUserId] = useState(null);
   const [isAuthReady, setIsAuthReady] = useState(false); // Tracks if auth state has been checked
   const [authError, setAuthError] = useState(null); // For handling auth-related errors and displaying them
+  const isExplicitlySignedOutRef = useRef(false); // Flag to track if user explicitly signed out, using useRef for immediate updates
 
   useEffect(() => {
     // onAuthStateChanged listens for authentication state changes (login/logout)
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      console.log("onAuthStateChanged fired. User:", user ? user.uid : "null");
       if (user) {
         // User is signed in.
         setCurrentUser(user);
         setUserId(user.uid);
+        isExplicitlySignedOutRef.current = false; // Reset flag if user is logged in
+        setAuthError(null); // Clear any auth errors on successful login
 
         // Fetch or create user profile in Firestore
         const profileRef = doc(db, `artifacts/${appId}/users/${user.uid}/userProfile`, 'profile');
@@ -79,7 +83,7 @@ function FirebaseProvider({ children }) {
               darkMode: false, // Default setting
               accentColor: '#3498DB', // Default setting
               createdAt: new Date().toISOString(),
-            }, { merge: true }) // Use merge: true to avoid overwriting existing fields if they appear later
+            }, { merge: true })
             .catch(err => {
                 console.error("Error creating user profile:", err);
                 setAuthError(`Failed to create profile: ${err.message}`);
@@ -93,39 +97,64 @@ function FirebaseProvider({ children }) {
         // User is signed out.
         setCurrentUser(null);
         setUserId(null);
+
+        // If not explicitly signed out by the user, try to re-authenticate with custom token or anonymously
+        // This handles the Canvas environment's auto-login behavior
+        if (!isExplicitlySignedOutRef.current) {
+            const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+            if (initialAuthToken) {
+              console.log("Attempting to re-sign in with custom token...");
+              signInWithCustomToken(auth, initialAuthToken)
+                .then(() => console.log("Re-signed in with custom token."))
+                .catch((error) => {
+                  console.error("Error re-signing in with custom token:", error);
+                  setAuthError(`Custom token re-sign-in failed: ${error.message}. Attempting anonymous sign-in.`);
+                  signInAnonymously(auth).catch(anonErr => {
+                    console.error("Anonymous re-sign-in fallback failed:", anonErr);
+                    setAuthError(`Anonymous sign-in failed: ${anonErr.message}`);
+                  });
+                });
+            } else if (!auth.currentUser) { // Check if still no current user before anonymous sign-in
+                console.log("No custom token, attempting anonymous sign-in (fallback).");
+                signInAnonymously(auth).catch(error => {
+                    console.error("Anonymous sign-in failed:", error);
+                    setAuthError(`Anonymous sign-in failed: ${error.message}`);
+                });
+            }
+        } else {
+            console.log("Explicitly signed out. Not attempting re-login.");
+            // Keep authError clear if explicit sign out was successful
+            setAuthError(null);
+        }
       }
       setIsAuthReady(true); // Auth state check is complete
     });
 
-    // Handle initial custom auth token provided by the Canvas environment
-    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-    if (initialAuthToken) {
-      signInWithCustomToken(auth, initialAuthToken)
-        .then(() => console.log("Signed in with custom token"))
-        .catch((error) => {
-          console.error("Error signing in with custom token:", error);
-          setAuthError(`Custom token sign-in failed: ${error.message}. Attempting anonymous sign-in.`);
-          // Fallback to anonymous sign-in if custom token fails
-          signInAnonymously(auth).catch(anonErr => {
-            console.error("Anonymous sign-in fallback failed:", anonErr);
-            setAuthError(`Anonymous sign-in failed: ${anonErr.message}`);
-          });
-        });
-    } else if (!auth.currentUser) {
-        // If no initial token and no current user, sign in anonymously by default for basic functionality
-        signInAnonymously(auth).catch(error => {
-            console.error("Anonymous sign-in failed:", error);
-            setAuthError(`Anonymous sign-in failed: ${error.message}`);
-        });
+    // Initial sign-in attempt on mount if no current user and no explicit sign-out flag
+    if (!auth.currentUser && !isExplicitlySignedOutRef.current) {
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        if (initialAuthToken) {
+            console.log("Initial sign-in with custom token...");
+            signInWithCustomToken(auth, initialAuthToken)
+                .catch(error => {
+                    console.error("Error during initial custom token sign-in:", error);
+                    setAuthError(`Initial sign-in failed: ${error.message}. Attempting anonymous fallback.`);
+                    signInAnonymously(auth).catch(anonErr => console.error("Initial anonymous sign-in fallback failed:", anonErr));
+                });
+        } else {
+            console.log("Initial anonymous sign-in...");
+            signInAnonymously(auth).catch(error => {
+                console.error("Initial anonymous sign-in failed:", error);
+            });
+        }
     }
-
     // Cleanup function for the auth listener
     return () => unsubscribe();
-  }, []); // Empty dependency array ensures this effect runs only once on mount
+  }, [auth]); // Dependency array: re-run if auth instance changes (unlikely)
 
   // Provide Firebase instances and user state to children components
   return (
-    <FirebaseContext.Provider value={{ db, auth, currentUser, userId, isAuthReady, setAuthError, authError }}>
+    <FirebaseContext.Provider value={{ db, auth, currentUser, userId, isAuthReady, setAuthError, authError, isExplicitlySignedOutRef }}>
       {children}
     </FirebaseContext.Provider>
   );
@@ -289,12 +318,14 @@ const getUserCollectionRef = (dbInstance, currentUserId, collectionName) => {
 
 // Main application dashboard logic
 function MainDashboardApp() {
-  const { db, auth, currentUser, userId, isAuthReady, authError, setAuthError } = useFirebase();
+  const { db, auth, currentUser, userId, isAuthReady, authError, setAuthError, isExplicitlySignedOutRef } = useFirebase();
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [userProfile, setUserProfile] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false); // State for ConfirmationModal
   const [modalMessage, setModalMessage] = useState(''); // Message for ConfirmationModal
   const [modalOnConfirm, setModalOnConfirm] = useState(() => () => {}); // Callback for ConfirmationModal
+  const [signOutSuccessMessage, setSignOutSuccessMessage] = useState(null); // New state for sign-out message
+
 
   // State for Dashboard Data
   const [tasks, setTasks] = useState([]);
@@ -472,9 +503,12 @@ function MainDashboardApp() {
   const handleSignOut = async () => {
     showConfirmation("Are you sure you want to sign out?", async () => {
       try {
+        isExplicitlySignedOutRef.current = true; // Set flag before signing out
         await signOut(auth); // Sign out using Firebase Auth
         console.log("User signed out.");
         setAuthError(null); // Clear any auth errors on successful sign out
+        setSignOutSuccessMessage("You have been signed out. Please note that in this environment, you might be automatically re-signed in.");
+        setTimeout(() => setSignOutSuccessMessage(null), 5000); // Clear message after 5 seconds
       } catch (error) {
         console.error("Error signing out:", error);
         setAuthError(`Sign out failed: ${error.message}`);
@@ -674,16 +708,8 @@ function MainDashboardApp() {
       clearInterval(timerRef.current);
       setIsActive(false);
       // Logic for automatic mode switching after timer ends
-      if (currentMode === 'study') {
-        alert("Study time finished! Take a short break.");
-        resetTimer('break');
-      } else if (currentMode === 'break') {
-        alert("Break finished! Time to study again.");
-        resetTimer('study');
-      } else if (currentMode === 'long-break') {
-        alert("Long break finished! Time to study again.");
-        resetTimer('study');
-      }
+      alert(`Time for a ${currentMode === 'study' ? 'break' : 'study session'}!`); // Custom alert
+      resetTimer(currentMode === 'study' ? 'break' : 'study'); // Simplified switch
     }
     return () => clearInterval(timerRef.current);
   }, [isActive, totalSeconds, currentMode, resetTimer]);
@@ -2163,8 +2189,11 @@ function MainDashboardApp() {
             {/* Display user ID */}
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">User ID: {userId}</p>
             {/* Display user email if available */}
-            {currentUser && currentUser.email && (
+            {currentUser && currentUser.email && !currentUser.isAnonymous && (
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Email: {currentUser.email}</p>
+            )}
+            {currentUser && currentUser.isAnonymous && (
+              <p className="text-sm text-orange-400 dark:text-orange-300 mb-2 font-semibold">Signed in Anonymously (Limited Features)</p>
             )}
             <button
                 onClick={handleSignOut}
@@ -2802,6 +2831,13 @@ function MainDashboardApp() {
           onClose={() => setAuthError(null)}
           isOpen={authError !== null}
       />
+
+      {/* Sign-out Success Message */}
+      {signOutSuccessMessage && (
+        <div className="fixed top-4 right-4 bg-green-500 text-white p-3 rounded-lg shadow-lg z-50">
+          {signOutSuccessMessage}
+        </div>
+      )}
     </>
   );
 }
