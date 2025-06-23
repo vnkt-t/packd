@@ -214,8 +214,6 @@ body {
     background-color: var(--bg-color-card-active);
     border-color: var(--border-color-medium);
 }
-
-
 .welcome-message .productive-text {
     color: var(--color-green);
 }
@@ -1274,7 +1272,6 @@ input:checked + .slider:before {
 }
 
 .course-list {
-    margin-top: 20px;
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
@@ -1283,6 +1280,7 @@ input:checked + .slider:before {
     background-color: var(--bg-color-card); /* Inherit card background */
     box-shadow: var(--box-shadow-card);
     border: 1px solid var(--border-color-card);
+    margin-top: 20px;
 }
 
 .course-list th, .course-list td {

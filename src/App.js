@@ -8,25 +8,135 @@ import {
   signOut,
   GoogleAuthProvider,
   signInWithPopup,
-  linkWithCredential,
-  signInWithCustomToken,
+  signInWithCustomToken, // For Canvas environment
 } from 'firebase/auth';
 import {
   getFirestore,
   doc,
   setDoc,
   onSnapshot,
-  addDoc,
   collection,
   query,
   getDocs,
   deleteDoc
 } from 'firebase/firestore';
 
-// IMPORTANT: Ensure you have a LoginPage component.
-// If you have a separate LoginPage.js file, import it like this:
-// import LoginPage from './LoginPage';
-// For demonstration, a minimal placeholder is provided below.
+// Import the external CSS file
+import './styles.css';
+
+// Define Firebase configuration.
+// Replace with your actual Firebase project configuration if you're not using the Canvas environment defaults.
+const firebaseConfig = {
+  apiKey: "AIzaSyCKBlAfBY7QIEv3rkRglDANkOqph67TSmo",
+  authDomain: "packd-2e657.firebaseapp.com",
+  projectId: "packd-2e657",
+  storageBucket: "packd-2e657.firebasestorage.app",
+  messagingSenderId: "940750390477",
+  appId: "1:940750390477:web:0fe652567f7f1df032d584",
+  measurementId: "G-HTDLKP79LE"
+};
+
+// Global variables provided by the Canvas environment.
+// For local or GitHub Pages deployment, these will be undefined, and the code handles the fallbacks.
+/* eslint-disable no-undef */ // Disable no-undef for __app_id and __initial_auth_token
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+// Initialize Firebase App and Services (Auth, Firestore)
+// Ensures Firebase is initialized only once
+let firebaseApp;
+if (getApps().length === 0) {
+    firebaseApp = initializeApp(firebaseConfig);
+} else {
+    firebaseApp = getApp();
+}
+const auth = getAuth(firebaseApp);
+const db = getFirestore(firebaseApp);
+
+// Create a context for Firebase services and user data to avoid prop-drilling
+const FirebaseContext = createContext(null);
+
+// FirebaseProvider component to manage authentication state and provide Firebase instances
+function FirebaseProvider({ children }) {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [userId, setUserId] = useState(null);
+  const [isAuthReady, setIsAuthReady] = useState(false); // Tracks if auth state has been checked
+  const [authError, setAuthError] = useState(null); // For handling auth-related errors and displaying them
+
+  useEffect(() => {
+    // onAuthStateChanged listens for authentication state changes (login/logout)
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        // User is signed in.
+        setCurrentUser(user);
+        setUserId(user.uid);
+
+        // Fetch or create user profile in Firestore
+        const profileRef = doc(db, `artifacts/${appId}/users/${user.uid}/userProfile`, 'profile');
+        onSnapshot(profileRef, (docSnap) => {
+          if (!docSnap.exists()) {
+            // If profile doesn't exist, create a default one
+            setDoc(profileRef, {
+              displayName: user.displayName || user.email || 'Student',
+              email: user.email || 'N/A',
+              darkMode: false, // Default setting
+              accentColor: '#3498DB', // Default setting
+              createdAt: new Date().toISOString(),
+            }, { merge: true }) // Use merge: true to avoid overwriting existing fields if they appear later
+            .catch(err => {
+                console.error("Error creating user profile:", err);
+                setAuthError(`Failed to create profile: ${err.message}`);
+            });
+          }
+        }, (error) => {
+            console.error("Error checking user profile existence:", error);
+            setAuthError(`Failed to check profile: ${error.message}`);
+        });
+      } else {
+        // User is signed out.
+        setCurrentUser(null);
+        setUserId(null);
+      }
+      setIsAuthReady(true); // Auth state check is complete
+    });
+
+    // Handle initial custom auth token provided by the Canvas environment
+    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+    if (initialAuthToken) {
+      signInWithCustomToken(auth, initialAuthToken)
+        .then(() => console.log("Signed in with custom token"))
+        .catch((error) => {
+          console.error("Error signing in with custom token:", error);
+          setAuthError(`Custom token sign-in failed: ${error.message}. Attempting anonymous sign-in.`);
+          // Fallback to anonymous sign-in if custom token fails
+          signInAnonymously(auth).catch(anonErr => {
+            console.error("Anonymous sign-in fallback failed:", anonErr);
+            setAuthError(`Anonymous sign-in failed: ${anonErr.message}`);
+          });
+        });
+    } else if (!auth.currentUser) {
+        // If no initial token and no current user, sign in anonymously by default for basic functionality
+        signInAnonymously(auth).catch(error => {
+            console.error("Anonymous sign-in failed:", error);
+            setAuthError(`Anonymous sign-in failed: ${error.message}`);
+        });
+    }
+
+    // Cleanup function for the auth listener
+    return () => unsubscribe();
+  }, []); // Empty dependency array ensures this effect runs only once on mount
+
+  // Provide Firebase instances and user state to children components
+  return (
+    <FirebaseContext.Provider value={{ db, auth, currentUser, userId, isAuthReady, setAuthError, authError }}>
+      {children}
+    </FirebaseContext.Provider>
+  );
+}
+
+// Custom hook to consume the Firebase context
+const useFirebase = () => useContext(FirebaseContext);
+
+// LoginPage component for user authentication
 function LoginPage({ auth, setAuthError }) {
   const handleGoogleSignIn = async () => {
     try {
@@ -80,29 +190,8 @@ function LoginPage({ auth, setAuthError }) {
   );
 }
 
-// Define Firebase configuration.
-const firebaseConfig = {
-  apiKey: "AIzaSyCKBlAfBY7QIEv3rkRglDANkOqph67TSmo",
-  authDomain: "packd-2e657.firebaseapp.com",
-  projectId: "packd-2e657",
-  storageBucket: "packd-2e657.firebasestorage.app",
-  messagingSenderId: "940750390477",
-  appId: "1:940750390477:web:0fe652567f7f1df032d584",
-  measurementId: "G-HTDLKP79LE"
-};
-
-// Global variables provided by the Canvas environment.
-// For local or GitHub Pages deployment, these will be undefined, and the code handles the fallbacks.
-/* eslint-disable no-undef */ // Disable no-undef for __app_id and __initial_auth_token
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-// Create a context for Firebase services and user data
-const FirebaseContext = createContext(null);
-
-// Custom hook to use Firebase context
-const useFirebase = () => useContext(FirebaseContext);
-
 // --- Custom Modal Components ---
+// ConfirmationModal: A reusable modal for confirming user actions
 function ConfirmationModal({ message, onConfirm, onCancel, isOpen }) {
     if (!isOpen) return null;
 
@@ -129,6 +218,7 @@ function ConfirmationModal({ message, onConfirm, onCancel, isOpen }) {
     );
 }
 
+// ErrorReportingModal: A modal for displaying errors and allowing users to report them
 function ErrorReportingModal({ errorMessage, onClose, isOpen }) {
     const [reportText, setReportText] = useState('');
     const [isSubmitted, setIsSubmitted] = useState(false);
@@ -142,7 +232,7 @@ function ErrorReportingModal({ errorMessage, onClose, isOpen }) {
             onClose();
             setIsSubmitted(false);
             setReportText('');
-        }, 2000);
+        }, 2000); // Close after 2 seconds and reset state
     };
 
     return (
@@ -187,42 +277,41 @@ function ErrorReportingModal({ errorMessage, onClose, isOpen }) {
 }
 
 
-// Global CSS styles based on user's provided code
-
-// Helper function for Firestore paths
-const getUserDocRef = (db, userId, collectionName, docName) => {
-  return doc(db, `artifacts/${appId}/users/${userId}/${collectionName}`, docName);
+// Helper function for Firestore document reference paths
+const getUserDocRef = (dbInstance, currentUserId, collectionName, docName) => {
+  return doc(dbInstance, `artifacts/${appId}/users/${currentUserId}/${collectionName}`, docName);
 };
 
-// Helper function to get a collection reference
-const getUserCollectionRef = (db, userId, collectionName) => {
-  return collection(db, `artifacts/${appId}/users/${userId}/${collectionName}`);
+// Helper function to get a Firestore collection reference
+const getUserCollectionRef = (dbInstance, currentUserId, collectionName) => {
+  return collection(dbInstance, `artifacts/${appId}/users/${currentUserId}/${collectionName}`);
 };
 
-// Renamed original App logic to MainDashboardApp
+// Main application dashboard logic
 function MainDashboardApp() {
-  const { db, auth, userId, isAuthReady, authError, setAuthError } = useFirebase();
+  const { db, auth, currentUser, userId, isAuthReady, authError, setAuthError } = useFirebase();
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [userProfile, setUserProfile] = useState(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalMessage, setModalMessage] = useState('');
-  const [modalOnConfirm, setModalOnConfirm] = useState(() => () => {});
+  const [isModalOpen, setIsModalOpen] = useState(false); // State for ConfirmationModal
+  const [modalMessage, setModalMessage] = useState(''); // Message for ConfirmationModal
+  const [modalOnConfirm, setModalOnConfirm] = useState(() => () => {}); // Callback for ConfirmationModal
 
+  // Effect to apply dark mode and accent color based on user profile from Firestore
   useEffect(() => {
-    // Apply dark mode class to body based on user profile settings
     if (userProfile) {
       if (userProfile.darkMode) {
         document.body.classList.add('dark-mode');
       } else {
         document.body.classList.remove('dark-mode');
       }
-      // Also apply accent color dynamically
+      // Dynamically set CSS variables for accent colors
       document.documentElement.style.setProperty('--color-blue', userProfile.accentColor || '#3498DB');
+      // Darken the accent color for hover states
       document.documentElement.style.setProperty('--color-dark-blue', userProfile.accentColor ? darkenColor(userProfile.accentColor, 10) : '#2980b9');
     }
   }, [userProfile]);
 
-  // Helper to darken color for hover states
+  // Helper function to darken a hex color by a percentage
   const darkenColor = (hex, percent) => {
     let f=parseInt(hex.slice(1),16);
     let t=percent<0?0:255;
@@ -233,28 +322,30 @@ function MainDashboardApp() {
     return "#"+(0x1000000+(Math.round((t-R)*p)+R)*0x10000+(Math.round((t-G)*p)+G)*0x100+(Math.round((t-B)*p)+B)).toString(16).slice(1);
   }
 
-
+  // Effect to fetch user profile data from Firestore
   useEffect(() => {
-    if (db && userId) {
+    if (db && userId) { // Only fetch if Firestore and userId are available
       const profileRef = getUserDocRef(db, userId, 'userProfile', 'profile');
       const unsubscribe = onSnapshot(profileRef, (docSnap) => {
         if (docSnap.exists()) {
           setUserProfile(docSnap.data());
         } else {
-          console.log("User profile does not exist. It will be created on initial auth if not present.");
+          console.log("User profile document does not exist.");
+          // A default profile will be created by FirebaseProvider if it doesn't exist
         }
       }, (error) => {
         console.error("Error fetching user profile:", error);
         setAuthError(`Failed to load profile: ${error.message}`);
       });
-      return () => unsubscribe();
+      return () => unsubscribe(); // Unsubscribe on component unmount
     }
-  }, [db, userId, setAuthError]);
+  }, [db, userId, setAuthError]); // Re-run if db or userId changes
 
-
+  // Function to show the confirmation modal
   const showConfirmation = (message, onConfirmCallback) => {
     setModalMessage(message);
-    setModalOnConfirm(() => { // Use a function to set the callback
+    // Use a function to set the callback to prevent stale closures
+    setModalOnConfirm(() => {
       return () => {
         onConfirmCallback();
         setIsModalOpen(false); // Close modal after action
@@ -263,12 +354,13 @@ function MainDashboardApp() {
     setIsModalOpen(true);
   };
 
+  // Handle user sign out
   const handleSignOut = async () => {
     showConfirmation("Are you sure you want to sign out?", async () => {
       try {
-        await signOut(auth);
+        await signOut(auth); // Sign out using Firebase Auth
         console.log("User signed out.");
-        setAuthError(null); // Clear any auth errors on sign out
+        setAuthError(null); // Clear any auth errors on successful sign out
       } catch (error) {
         console.error("Error signing out:", error);
         setAuthError(`Sign out failed: ${error.message}`);
@@ -276,22 +368,20 @@ function MainDashboardApp() {
     });
   };
 
+  // Simulated Google Classroom sync (requires backend for full integration)
   const handleSyncGoogleClassroom = () => {
-      // This function would typically trigger a backend call to Google Classroom API
-      // For this frontend-only app, it's a simulated sync.
-      if (!auth.currentUser || auth.currentUser.isAnonymous) {
+      if (!currentUser || currentUser.isAnonymous) {
           setAuthError("Please sign in with your Google account to sync with Google Classroom.");
           return;
       }
       console.log("Attempting to sync with Google Classroom...");
-      // In a real app, you would make an API call here.
-      // Example: fetch('/api/sync-classroom', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
-      // Using custom modal instead of alert
+      // In a real application, you would make a backend API call here
+      // For example: fetch('/api/sync-classroom', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
       setAuthError("Simulated sync with Google Classroom completed! (Requires backend integration for full functionality)");
   };
 
-
-  // If Firebase authentication is not yet ready, show a loading state
+  // --- Conditional Rendering based on Authentication State ---
+  // Show loading state while Firebase authentication is being checked
   if (!isAuthReady) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
@@ -300,32 +390,29 @@ function MainDashboardApp() {
     );
   }
 
-  // If there's an authentication error, show the login page with the error
-  // This needs to check if auth is available first before accessing auth.currentUser
-  if (authError && auth && !auth.currentUser) {
+  // If there's an authentication error, display it in the error reporting modal
+  if (authError && !currentUser) { // Only show error modal if there's an error and no user logged in
     return (
       <>
         <LoginPage auth={auth} setAuthError={setAuthError} />
         <ErrorReportingModal
             errorMessage={authError}
-            onClose={() => setAuthError(null)}
+            onClose={() => setAuthError(null)} // Clear error when modal is closed
             isOpen={authError !== null}
         />
       </>
     );
   }
 
-  // If no user is authenticated (e.g., after sign out, or initial anonymous sign-in failed), show LoginPage
-  // Or, if the user *is* anonymous but prefers to sign in with Google (prompt them)
-  // This also needs 'auth &&' check
-  if (auth && (!auth.currentUser || auth.currentUser.isAnonymous)) {
+  // If no user is authenticated (or an anonymous user who needs to sign in with Google for full features), show LoginPage
+  // This ensures the LoginPage is shown on initial anonymous sign-in or after sign-out.
+  if (!currentUser) {
       return <LoginPage auth={auth} setAuthError={setAuthError} />;
   }
 
-  // If authenticated, show the main dashboard
+  // If authenticated, show the main dashboard application
   return (
     <>
-      {/* Moved globalStyles import to be external CSS file */}
       <div className="flex w-full min-h-screen">
         {/* Sidebar */}
         <aside className="sidebar">
@@ -361,9 +448,11 @@ function MainDashboardApp() {
           </nav>
 
           <div className="mt-auto w-full pt-6"> {/* Push to bottom */}
+            {/* Display user ID */}
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">User ID: {userId}</p>
-            {auth.currentUser && auth.currentUser.email && (
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Email: {auth.currentUser.email}</p>
+            {/* Display user email if available */}
+            {currentUser && currentUser.email && (
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Email: {currentUser.email}</p>
             )}
             <button
                 onClick={handleSignOut}
@@ -416,7 +505,7 @@ function MainDashboardApp() {
           )}
           {currentPage === 'add-task' && (
             <div className="page-header">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.00/svg">
                 <path d="M12 5V19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M5 12H19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
@@ -425,7 +514,7 @@ function MainDashboardApp() {
           )}
           {currentPage === 'plan' && (
             <div className="page-header">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.00/svg">
                 <path d="M16 4H8C5.79086 4 4 5.79086 4 8V16C4 18.2091 5.79086 20 8 20H16C18.2091 20 20 18.2091 20 16V8C20 5.79086 18.2091 4 16 4Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M16 8L8 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M16 16L8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -435,7 +524,7 @@ function MainDashboardApp() {
           )}
           {currentPage === 'gpa-calculator' && (
             <div className="page-header">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.00/svg">
                   <path d="M12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                   <path d="M12 6V12L16 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
@@ -444,7 +533,7 @@ function MainDashboardApp() {
           )}
           {currentPage === 'settings' && (
             <div className="page-header">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.00/svg">
                 <path d="M12 6V3M12 21V18M18 12H21M3 12H6M19.07 4.93L17.66 6.34M6.34 17.66L4.93 19.07M19.07 19.07L17.66 17.66M6.34 6.34L4.93 4.93" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
@@ -528,11 +617,6 @@ function MainDashboardApp() {
                                 <div className="status">Failed</div>
                             </div>
                             <div className="assessment-card">
-                                <div className="date">Sep 15</div>
-                                <div className="title">English Essay</div>
-                                <div className="status">Pending</div>
-                            </div>
-                            <div className="assessment-card">
                                 {/* Removed the non-standard 'behaves-like' attribute */}
                                 <div id="math-final-card">
                                     <div className="date">Oct 05</div>
@@ -611,7 +695,7 @@ function MainDashboardApp() {
                     <div className="box notes-section">
                         <h3>Quick Notes
                             <span className="edit-icon">
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.00/svg">
                                     <path d="M11 4H4C3.44772 4 3 4.44772 3 5V20C3 20.5523 3.44772 21 4 21H19C19.5523 21 20 20.5523 20 20V13M18.5 2.5C18.8978 2.10217 19.4391 1.89506 20 1.89506C20.5609 1.89506 21.1022 2.10217 21.5 2.5C21.8978 2.89782 22.1049 3.43913 22.1049 4C22.1049 4.56087 21.8978 5.10217 21.5 5.5L12 15L8 16L9 12L18.5 2.5Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                                 </svg>
                             </span>
@@ -939,5 +1023,14 @@ function MainDashboardApp() {
   );
 }
 
+// Top-level App component that wraps MainDashboardApp with FirebaseProvider
+function App() {
+  return (
+    <FirebaseProvider>
+      <MainDashboardApp />
+    </FirebaseProvider>
+  );
+}
+
 // Export the main component
-export default MainDashboardApp;
+export default App;
