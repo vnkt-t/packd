@@ -17,7 +17,9 @@ import {
   collection,
   query,
   getDocs,
-  deleteDoc
+  addDoc, // Added for adding new documents
+  deleteDoc, // Added for deleting documents
+  updateDoc // Added for updating documents
 } from 'firebase/firestore';
 
 // Define Firebase configuration.
@@ -133,7 +135,7 @@ function FirebaseProvider({ children }) {
 const useFirebase = () => useContext(FirebaseContext);
 
 // LoginPage component for user authentication
-function LoginPage() { // Removed direct props for auth and setAuthError, will use context
+function LoginPage() {
   const { auth, authError, setAuthError } = useFirebase(); // Consume from context
 
   const handleGoogleSignIn = async () => {
@@ -294,6 +296,39 @@ function MainDashboardApp() {
   const [modalMessage, setModalMessage] = useState(''); // Message for ConfirmationModal
   const [modalOnConfirm, setModalOnConfirm] = useState(() => () => {}); // Callback for ConfirmationModal
 
+  // State for Dashboard Data
+  const [tasks, setTasks] = useState([]);
+  const [habits, setHabits] = useState([]);
+  const [courses, setCourses] = useState([]);
+  const [quickNotes, setQuickNotes] = useState('');
+
+  // State for Add Task Form
+  const [newTaskName, setNewTaskName] = useState('');
+  const [newTaskCategory, setNewTaskCategory] = useState('');
+  const [newTaskPriority, setNewTaskPriority] = useState('Low');
+  const [newTaskDueDate, setNewTaskDueDate] = useState('');
+  const [newTaskDueTime, setNewTaskDueTime] = useState('');
+  const [newTaskDescription, setNewTaskDescription] = useState('');
+
+  // State for Add Habit Form
+  const [newHabitName, setNewHabitName] = useState('');
+  const [newHabitRepeatDays, setNewHabitRepeatDays] = useState([]);
+  const [newHabitGoal, setNewHabitGoal] = useState('');
+
+  // State for GPA Calculator Form
+  const [newCourseName, setNewCourseName] = useState('');
+  const [newCourseCredits, setNewCourseCredits] = useState('');
+  const [newCourseGrade, setNewCourseGrade] = useState('');
+
+  // Pomodoro Timer States
+  const [timerMinutes, setTimerMinutes] = useState(25);
+  const [timerSeconds, setTimerSeconds] = useState(0);
+  const [isActive, setIsActive] = useState(false);
+  const [currentMode, setCurrentMode] = useState('study'); // 'study', 'break', 'long-break'
+  const studyTime = 25 * 60; // 25 minutes in seconds
+  const breakTime = 5 * 60;  // 5 minutes in seconds
+  const longBreakTime = 15 * 60; // 15 minutes in seconds
+
   // Effect to apply dark mode and accent color based on user profile from Firestore
   useEffect(() => {
     if (userProfile) {
@@ -339,6 +374,87 @@ function MainDashboardApp() {
     }
   }, [db, userId, setAuthError]); // Re-run if db or userId changes
 
+  // Fetch Tasks
+  useEffect(() => {
+    if (db && userId) {
+      const tasksRef = getUserCollectionRef(db, userId, 'tasks');
+      const q = query(tasksRef);
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const tasksData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setTasks(tasksData);
+      }, (error) => {
+        console.error("Error fetching tasks:", error);
+        setAuthError(`Failed to load tasks: ${error.message}`);
+      });
+      return () => unsubscribe();
+    }
+  }, [db, userId, setAuthError]);
+
+  // Fetch Habits
+  useEffect(() => {
+    if (db && userId) {
+      const habitsRef = getUserCollectionRef(db, userId, 'habits');
+      const q = query(habitsRef);
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const habitsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setHabits(habitsData);
+      }, (error) => {
+        console.error("Error fetching habits:", error);
+        setAuthError(`Failed to load habits: ${error.message}`);
+      });
+      return () => unsubscribe();
+    }
+  }, [db, userId, setAuthError]);
+
+  // Fetch Courses
+  useEffect(() => {
+    if (db && userId) {
+      const coursesRef = getUserCollectionRef(db, userId, 'courses');
+      const q = query(coursesRef);
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const coursesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setCourses(coursesData);
+      }, (error) => {
+        console.error("Error fetching courses:", error);
+        setAuthError(`Failed to load courses: ${error.message}`);
+      });
+      return () => unsubscribe();
+    }
+  }, [db, userId, setAuthError]);
+
+  // Fetch Quick Notes
+  useEffect(() => {
+    if (db && userId) {
+      const notesRef = getUserDocRef(db, userId, 'notes', 'quickNotes');
+      const unsubscribe = onSnapshot(notesRef, (docSnap) => {
+        if (docSnap.exists()) {
+          setQuickNotes(docSnap.data().content || '');
+        } else {
+          setQuickNotes(''); // No notes yet
+        }
+      }, (error) => {
+        console.error("Error fetching quick notes:", error);
+        setAuthError(`Failed to load notes: ${error.message}`);
+      });
+      return () => unsubscribe();
+    }
+  }, [db, userId, setAuthError]);
+
+  // Save Quick Notes
+  const handleSaveQuickNotes = async () => {
+    if (db && userId) {
+      const notesRef = getUserDocRef(db, userId, 'notes', 'quickNotes');
+      try {
+        await setDoc(notesRef, { content: quickNotes }, { merge: true });
+        console.log("Quick notes saved.");
+      } catch (error) {
+        console.error("Error saving quick notes:", error);
+        setAuthError(`Failed to save notes: ${error.message}`);
+      }
+    }
+  };
+
+
   // Function to show the confirmation modal
   const showConfirmation = (message, onConfirmCallback) => {
     setModalMessage(message);
@@ -378,6 +494,260 @@ function MainDashboardApp() {
       setAuthError("Simulated sync with Google Classroom completed! (Requires backend integration for full functionality)");
   };
 
+  // --- Task Management Functions ---
+  const handleAddTask = async () => {
+    if (!newTaskName || !newTaskDueDate) {
+      setAuthError("Task Name and Due Date are required.");
+      return;
+    }
+    if (db && userId) {
+      try {
+        await addDoc(getUserCollectionRef(db, userId, 'tasks'), {
+          name: newTaskName,
+          category: newTaskCategory,
+          priority: newTaskPriority,
+          dueDate: newTaskDueDate,
+          dueTime: newTaskDueTime,
+          description: newTaskDescription,
+          completed: false,
+          createdAt: new Date().toISOString(),
+          type: 'task'
+        });
+        setNewTaskName('');
+        setNewTaskCategory('');
+        setNewTaskPriority('Low');
+        setNewTaskDueDate('');
+        setNewTaskDueTime('');
+        setNewTaskDescription('');
+        console.log("Task added successfully!");
+      } catch (error) {
+        console.error("Error adding task:", error);
+        setAuthError(`Failed to add task: ${error.message}`);
+      }
+    }
+  };
+
+  const handleToggleTaskCompletion = async (taskId, currentStatus) => {
+    if (db && userId) {
+      const taskRef = getUserDocRef(db, userId, 'tasks', taskId);
+      try {
+        await updateDoc(taskRef, { completed: !currentStatus });
+        console.log("Task completion toggled.");
+      } catch (error) {
+        console.error("Error toggling task completion:", error);
+        setAuthError(`Failed to update task: ${error.message}`);
+      }
+    }
+  };
+
+  // --- Habit Management Functions ---
+  const handleAddHabit = async () => {
+    if (!newHabitName || newHabitRepeatDays.length === 0) {
+      setAuthError("Habit Name and at least one Repeat Day are required.");
+      return;
+    }
+    if (db && userId) {
+      try {
+        await addDoc(getUserCollectionRef(db, userId, 'habits'), {
+          name: newHabitName,
+          repeatDays: newHabitRepeatDays,
+          goal: newHabitGoal,
+          completionLogs: {}, // Store completion by date: { 'YYYY-MM-DD': true }
+          createdAt: new Date().toISOString()
+        });
+        setNewHabitName('');
+        setNewHabitRepeatDays([]);
+        setNewHabitGoal('');
+        console.log("Habit added successfully!");
+      } catch (error) {
+        console.error("Error adding habit:", error);
+        setAuthError(`Failed to add habit: ${error.message}`);
+      }
+    }
+  };
+
+  const handleToggleHabitDay = (day) => {
+    setNewHabitRepeatDays(prevDays =>
+      prevDays.includes(day)
+        ? prevDays.filter(d => d !== day)
+        : [...prevDays, day]
+    );
+  };
+
+  const handleToggleHabitCompletion = async (habitId, date, currentStatus) => {
+    if (db && userId) {
+      const habitRef = getUserDocRef(db, userId, 'habits', habitId);
+      try {
+        await updateDoc(habitRef, {
+          [`completionLogs.${date}`]: !currentStatus
+        });
+        console.log(`Habit completion for ${date} toggled.`);
+      } catch (error) {
+        console.error("Error toggling habit completion:", error);
+        setAuthError(`Failed to update habit: ${error.message}`);
+      }
+    }
+  };
+
+
+  // --- GPA Calculator Functions ---
+  const handleAddCourse = async () => {
+    if (!newCourseName || !newCourseCredits || !newCourseGrade) {
+      setAuthError("All course fields are required.");
+      return;
+    }
+    const credits = parseFloat(newCourseCredits);
+    const grade = parseFloat(newCourseGrade);
+    if (isNaN(credits) || isNaN(grade) || credits <= 0 || grade < 0 || grade > 4) {
+      setAuthError("Please enter valid credits (e.g., 3.0) and grade (0.0-4.0).");
+      return;
+    }
+
+    if (db && userId) {
+      try {
+        await addDoc(getUserCollectionRef(db, userId, 'courses'), {
+          name: newCourseName,
+          credits: credits,
+          grade: grade,
+          createdAt: new Date().toISOString()
+        });
+        setNewCourseName('');
+        setNewCourseCredits('');
+        setNewCourseGrade('');
+        console.log("Course added successfully!");
+      } catch (error) {
+        console.error("Error adding course:", error);
+        setAuthError(`Failed to add course: ${error.message}`);
+      }
+    }
+  };
+
+  const handleRemoveCourse = async (courseId) => {
+    showConfirmation("Are you sure you want to remove this course?", async () => {
+      if (db && userId) {
+        const courseRef = getUserDocRef(db, userId, 'courses', courseId);
+        try {
+          await deleteDoc(courseRef);
+          console.log("Course removed successfully!");
+        } catch (error) {
+          console.error("Error removing course:", error);
+          setAuthError(`Failed to remove course: ${error.message}`);
+        }
+      }
+    });
+  };
+
+  const calculateGPA = useCallback(() => {
+    if (courses.length === 0) return '0.00';
+    let totalGradePoints = 0;
+    let totalCredits = 0;
+    courses.forEach(course => {
+      totalGradePoints += course.grade * course.credits;
+      totalCredits += course.credits;
+    });
+    return (totalCredits === 0 ? 0 : (totalGradePoints / totalCredits)).toFixed(2);
+  }, [courses]);
+
+  // --- Pomodoro Timer Functions ---
+  const [totalSeconds, setTotalSeconds] = useState(studyTime);
+  const timerRef = React.useRef(null);
+
+  const resetTimer = useCallback((mode) => {
+    setIsActive(false);
+    setCurrentMode(mode);
+    if (mode === 'study') {
+      setTotalSeconds(studyTime);
+    } else if (mode === 'break') {
+      setTotalSeconds(breakTime);
+    } else if (mode === 'long-break') {
+      setTotalSeconds(longBreakTime);
+    }
+    clearInterval(timerRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (isActive && totalSeconds > 0) {
+      timerRef.current = setInterval(() => {
+        setTotalSeconds(prev => prev - 1);
+      }, 1000);
+    } else if (totalSeconds === 0) {
+      clearInterval(timerRef.current);
+      setIsActive(false);
+      // Logic for automatic mode switching after timer ends
+      if (currentMode === 'study') {
+        alert("Study time finished! Take a short break.");
+        resetTimer('break');
+      } else if (currentMode === 'break') {
+        alert("Break finished! Time to study again.");
+        resetTimer('study');
+      } else if (currentMode === 'long-break') {
+        alert("Long break finished! Time to study again.");
+        resetTimer('study');
+      }
+    }
+    return () => clearInterval(timerRef.current);
+  }, [isActive, totalSeconds, currentMode, resetTimer]);
+
+  useEffect(() => {
+    setTimerMinutes(Math.floor(totalSeconds / 60));
+    setTimerSeconds(totalSeconds % 60);
+  }, [totalSeconds]);
+
+
+  // Filter tasks for Today's Tasks on Dashboard
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  const todaysTasks = tasks.filter(task => task.dueDate === today && !task.completed);
+  const completedTasksCount = tasks.filter(task => task.completed).length;
+  const totalProductivityTasks = tasks.length;
+  const productivityPercentage = totalProductivityTasks > 0
+    ? ((completedTasksCount / totalProductivityTasks) * 100).toFixed(1)
+    : '0.0';
+
+  // Filter tasks for Upcoming Assessments (tasks with type 'assessment' or priority 'High' and not completed)
+  const upcomingAssessments = tasks.filter(task =>
+    (task.type === 'assessment' || task.priority === 'High') && !task.completed
+  ).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate)); // Sort by due date
+
+
+  // Filter tasks/habits for Calendar page
+  const calendarEvents = [];
+  tasks.forEach(task => {
+    calendarEvents.push({
+      date: task.dueDate,
+      title: task.name,
+      type: 'task',
+      completed: task.completed,
+      priority: task.priority
+    });
+  });
+  const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const getDayName = (dateString) => {
+      const date = new Date(dateString);
+      return daysOfWeek[date.getDay()];
+  };
+
+  // Create a map for easy lookup of habit completion for the current week
+  const currentWeekHabitCompletion = {};
+  habits.forEach(habit => {
+      currentWeekHabitCompletion[habit.id] = habit.completionLogs || {};
+  });
+
+  const getWeekDays = () => {
+    const today = new Date();
+    const currentDay = today.getDay(); // 0 for Sunday, 1 for Monday, etc.
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - currentDay); // Go to Sunday
+
+    const weekDays = [];
+    for (let i = 0; i < 7; i++) {
+        const date = new Date(startOfWeek);
+        date.setDate(startOfWeek.getDate() + i);
+        weekDays.push(date.toISOString().split('T')[0]); // YYYY-MM-DD
+    }
+    return weekDays;
+  };
+  const weekDates = getWeekDays();
+
   // --- Conditional Rendering based on Authentication State ---
   // Show loading state while Firebase authentication is being checked
   if (!isAuthReady) {
@@ -392,7 +762,7 @@ function MainDashboardApp() {
   if (authError && !currentUser) { // Only show error modal if there's an error and no user logged in
     return (
       <>
-        <LoginPage auth={auth} setAuthError={setAuthError} />
+        <LoginPage />
         <ErrorReportingModal
             errorMessage={authError}
             onClose={() => setAuthError(null)} // Clear error when modal is closed
@@ -402,10 +772,9 @@ function MainDashboardApp() {
     );
   }
 
-  // If no user is authenticated (or an anonymous user who needs to sign in with Google for full features), show LoginPage
-  // This ensures the LoginPage is shown on initial anonymous sign-in or after sign-out.
+  // If no user is authenticated, show the LoginPage
   if (!currentUser) {
-      return <LoginPage auth={auth} setAuthError={setAuthError} />;
+      return <LoginPage />;
   }
 
   // If authenticated, show the main dashboard application
@@ -1890,9 +2259,9 @@ function MainDashboardApp() {
             <div id="dashboard-content">
                 <div className="productivity-section">
                     <strong>Your Productivity Progress</strong>
-                    <p>85.7% of tasks completed this week, keep up the great work!</p>
+                    <p>{productivityPercentage}% of tasks completed this week, keep up the great work!</p>
                     <div className="progress-bar">
-                        <div className="progress-bar-inner" style={{ width: '85.7%' }}></div>
+                        <div className="progress-bar-inner" style={{ width: `${productivityPercentage}%` }}></div>
                     </div>
                 </div>
 
@@ -1900,24 +2269,23 @@ function MainDashboardApp() {
                     <div className="box task-list">
                         <h3>Today's Tasks</h3>
                         <ul>
-                            <li>
-                                <span className="checkbox checked">✔</span>
-                                <span className="task-text">Finish Math Homework</span>
-                                <span className="due-date">Due: 5 PM</span>
-                                <a href="#" className="open-link">Open</a>
-                            </li>
-                            <li>
-                                <span className="checkbox"></span>
-                                <span className="task-text">Study for Physics Exam</span>
-                                <span className="due-date">Due: Tomorrow</span>
-                                <a href="#" className="open-link">Open</a>
-                            </li>
-                            <li>
-                                <span className="checkbox"></span>
-                                <span className="task-text">Read "To Kill a Mockingbird" Chapter 10</span>
-                                <span className="due-date">Due: Fri</span>
-                                <a href="#" className="open-link">Open</a>
-                            </li>
+                            {todaysTasks.length > 0 ? (
+                                todaysTasks.map(task => (
+                                    <li key={task.id}>
+                                        <span
+                                            className={`checkbox ${task.completed ? 'checked' : ''}`}
+                                            onClick={() => handleToggleTaskCompletion(task.id, task.completed)}
+                                        >
+                                            {task.completed ? '✔' : ''}
+                                        </span>
+                                        <span className="task-text">{task.name}</span>
+                                        <span className="due-date">Due: {task.dueTime || 'Anytime'}</span>
+                                        <a href="#" className="open-link" onClick={(e) => { e.preventDefault(); console.log(`Opening task: ${task.name}`); }}>Open</a>
+                                    </li>
+                                ))
+                            ) : (
+                                <p className="text-gray-500 dark:text-gray-400">No tasks due today. Add some!</p>
+                            )}
                         </ul>
                         <div className="ai-suggestion">
                             <span className="checkbox"></span>
@@ -1932,41 +2300,52 @@ function MainDashboardApp() {
                                 <circle cx="90" cy="90" r="80" className="pomodoro-bg"></circle>
                                 {/* stroke-dashoffset is calculated as circumference - (percent * circumference) */}
                                 <circle cx="90" cy="90" r="80" className="pomodoro-fg"
-                                        style={{ strokeDashoffset: `calc(502.65 - (25 / 25 * 502.65))`, stroke: 'var(--color-red)' }}
+                                        style={{ strokeDashoffset: `calc(502.65 - (${totalSeconds / (currentMode === 'study' ? studyTime : currentMode === 'break' ? breakTime : longBreakTime)} * 502.65))`,
+                                                 stroke: currentMode === 'study' ? 'var(--color-red)' : currentMode === 'break' ? 'var(--color-blue)' : 'var(--color-orange)'
+                                        }}
                                 ></circle>
                             </svg>
-                            <div className="pomodoro-time-text">25:00</div>
+                            <div className="pomodoro-time-text">
+                                {String(timerMinutes).padStart(2, '0')}:{String(timerSeconds).padStart(2, '0')}
+                            </div>
                         </div>
                         <div className="pomodoro-dots">
-                            <span className="dot study active" style={{backgroundColor: 'var(--color-red)'}}></span>
-                            <span className="dot break" style={{backgroundColor: 'var(--color-blue)'}}></span>
-                            <span className="dot long-break" style={{backgroundColor: 'var(--color-orange)'}}></span>
+                            <span
+                                className={`dot study ${currentMode === 'study' ? 'active' : ''}`}
+                                style={{backgroundColor: 'var(--color-red)'}}
+                                onClick={() => resetTimer('study')}
+                            ></span>
+                            <span
+                                className={`dot break ${currentMode === 'break' ? 'active' : ''}`}
+                                style={{backgroundColor: 'var(--color-blue)'}}
+                                onClick={() => resetTimer('break')}
+                            ></span>
+                            <span
+                                className={`dot long-break ${currentMode === 'long-break' ? 'active' : ''}`}
+                                style={{backgroundColor: 'var(--color-orange)'}}
+                                onClick={() => resetTimer('long-break')}
+                            ></span>
                         </div>
                         <p>Focus on your studies with timed intervals.</p>
-                        <button>Start Timer</button>
+                        <button onClick={() => setIsActive(!isActive)}>
+                            {isActive ? 'Pause Timer' : 'Start Timer'}
+                        </button>
                     </div>
 
                     <div className="box upcoming-assessments">
                         <h3>Upcoming Assessments</h3>
                         <div className="assessment-grid">
-                            <div className="assessment-card success">
-                                <div className="date">Jul 10</div>
-                                <div className="title">History Quiz</div>
-                                <div className="status">Passed</div>
-                            </div>
-                            <div className="assessment-card fail">
-                                <div className="date">Aug 01</div>
-                                <div className="title">Chemistry Midterm</div>
-                                <div className="status">Failed</div>
-                            </div>
-                            <div className="assessment-card">
-                                {/* Removed the non-standard 'behaves-like' attribute */}
-                                <div id="math-final-card">
-                                    <div className="date">Oct 05</div>
-                                    <div className="title">Math Final</div>
-                                    <div className="status">Pending</div>
-                                </div>
-                            </div>
+                            {upcomingAssessments.length > 0 ? (
+                                upcomingAssessments.slice(0, 3).map(assessment => (
+                                    <div key={assessment.id} className="assessment-card">
+                                        <div className="date">{new Date(assessment.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                                        <div className="title">{assessment.name}</div>
+                                        <div className="status">Pending</div> {/* Status can be more dynamic later */}
+                                    </div>
+                                ))
+                            ) : (
+                                <p className="text-gray-500 dark:text-gray-400">No upcoming assessments.</p>
+                            )}
                         </div>
                     </div>
 
@@ -1976,46 +2355,37 @@ function MainDashboardApp() {
                             <thead>
                                 <tr>
                                     <th>Habit</th>
-                                    <th>Mon</th>
-                                    <th>Tue</th>
-                                    <th>Wed</th>
-                                    <th>Thu</th>
-                                    <th>Fri</th>
-                                    <th>Sat</th>
-                                    <th>Sun</th>
+                                    {weekDates.map((date, index) => (
+                                        <th key={date}>{daysOfWeek[new Date(date).getDay()]}</th>
+                                    ))}
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr>
-                                    <td>Meditate 10min</td>
-                                    <td className="checkbox-cell checked">✔</td>
-                                    <td className="checkbox-cell checked">✔</td>
-                                    <td className="checkbox-cell"></td>
-                                    <td className="checkbox-cell"></td>
-                                    <td className="checkbox-cell"></td>
-                                    <td className="checkbox-cell"></td>
-                                    <td className="checkbox-cell"></td>
-                                </tr>
-                                <tr>
-                                    <td>Exercise</td>
-                                    <td className="checkbox-cell checked">✔</td>
-                                    <td className="checkbox-cell"></td>
-                                    <td className="checkbox-cell checked">✔</td>
-                                    <td className="checkbox-cell"></td>
-                                    <td className="checkbox-cell"></td>
-                                    <td className="checkbox-cell"></td>
-                                    <td className="checkbox-cell"></td>
-                                </tr>
-                                <tr>
-                                    <td>Read Book</td>
-                                    <td className="checkbox-cell"></td>
-                                    <td className="checkbox-cell checked">✔</td>
-                                    <td className="checkbox-cell"></td>
-                                    <td className="checkbox-cell checked">✔</td>
-                                    <td className="checkbox-cell"></td>
-                                    <td className="checkbox-cell"></td>
-                                    <td className="checkbox-cell"></td>
-                                </tr>
+                                {habits.length > 0 ? (
+                                    habits.map(habit => (
+                                        <tr key={habit.id}>
+                                            <td>{habit.name}</td>
+                                            {weekDates.map(date => {
+                                                const isCompleted = habit.completionLogs && habit.completionLogs[date];
+                                                const dayName = daysOfWeek[new Date(date).getDay()].substring(0, 1); // M, T, W...
+                                                const isRepeatDay = habit.repeatDays.includes(dayName); // Check if habit should be done today
+
+                                                return (
+                                                    <td
+                                                        key={`${habit.id}-${date}`}
+                                                        className={`checkbox-cell ${isCompleted ? 'checked' : ''}`}
+                                                        onClick={() => isRepeatDay && handleToggleHabitCompletion(habit.id, date, isCompleted)}
+                                                        style={{ cursor: isRepeatDay ? 'pointer' : 'default', opacity: isRepeatDay ? 1 : 0.5 }}
+                                                    >
+                                                        {isCompleted ? '✔' : (isRepeatDay ? '' : '-')}
+                                                    </td>
+                                                );
+                                            })}
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr><td colSpan="8" className="text-gray-500 dark:text-gray-400">No habits added.</td></tr>
+                                )}
                             </tbody>
                         </table>
                     </div>
@@ -2027,12 +2397,12 @@ function MainDashboardApp() {
                                 <circle cx="60" cy="60" r="50" className="gpa-bg"></circle>
                                 {/* stroke-dashoffset is calculated as circumference - (gpa_percent * circumference) */}
                                 <circle cx="60" cy="60" r="50" className="gpa-fg"
-                                        style={{ strokeDashoffset: `calc(314.16 - (3.75 / 4.0 * 314.16))` }}
+                                        style={{ strokeDashoffset: `calc(314.16 - (${parseFloat(calculateGPA()) / 4.0} * 314.16))` }}
                                 ></circle>
                             </svg>
-                            <div className="gpa-value">3.75</div>
+                            <div className="gpa-value">{calculateGPA()}</div>
                         </div>
-                        <p>Based on your last semester's courses.</p>
+                        <p>Based on your courses.</p>
                     </div>
 
                     <div className="box notes-section">
@@ -2043,7 +2413,13 @@ function MainDashboardApp() {
                                 </svg>
                             </span>
                         </h3>
-                        <p>Remember to submit the scholarship application by Friday. Also, research internship opportunities for summer 2026. Schedule a meeting with Professor Lee next week.</p>
+                        <textarea
+                            className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 min-h-[120px] mt-2"
+                            value={quickNotes}
+                            onChange={(e) => setQuickNotes(e.target.value)}
+                            onBlur={handleSaveQuickNotes} // Save when textarea loses focus
+                            placeholder="Jot down quick thoughts here..."
+                        ></textarea>
                     </div>
                 </div>
                 <button
@@ -2059,30 +2435,40 @@ function MainDashboardApp() {
           {currentPage === 'calendar' && (
             <div className="calendar-page">
                 <div className="calendar-grid">
-                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
+                    {daysOfWeek.map(day => (
                         <div key={day} className="calendar-day-name">{day}</div>
                     ))}
-                    {/* Placeholder cells for days before the 1st of the month */}
-                    {[...Array(2)].map((_, i) => (
-                        <div key={`inactive-${i}`} className="calendar-day-cell inactive"></div>
+                    {/* Placeholder for days before the 1st of the month (simplified, assuming current month starts on Monday/Sunday based on first day) */}
+                    {/* For a full calendar, this would involve calculating the first day of the month */}
+                    {[...Array(new Date(new Date().getFullYear(), new Date().getMonth(), 1).getDay())].map((_, i) => (
+                        <div key={`inactive-start-${i}`} className="calendar-day-cell inactive"></div>
                     ))}
-                    {/* Example Calendar Days - will be dynamically generated */}
-                    {[...Array(30)].map((_, i) => {
+                    {/* Render days of the current month */}
+                    {[...Array(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate())].map((_, i) => {
                         const day = i + 1;
-                        const isToday = day === 21; // Example: assuming today is the 21st
-                        const progress = (day * 3) % 100; // Example dynamic progress
+                        const currentDate = new Date();
+                        const isToday = currentDate.getDate() === day && currentDate.getMonth() === new Date().getMonth();
+                        const fullDateString = new Date(currentDate.getFullYear(), currentDate.getMonth(), day).toISOString().split('T')[0];
+
+                        const dayTasks = tasks.filter(task => task.dueDate === fullDateString);
+                        const completedTasksOnDay = dayTasks.filter(task => task.completed).length;
+                        const totalTasksOnDay = dayTasks.length;
+                        const dayProgress = totalTasksOnDay > 0 ? (completedTasksOnDay / totalTasksOnDay) * 100 : 0;
+
                         let progressBarClass = 'green';
-                        if (progress < 40) progressBarClass = 'red';
-                        else if (progress < 70) progressBarClass = 'yellow';
+                        if (dayProgress < 40) progressBarClass = 'red';
+                        else if (dayProgress < 70) progressBarClass = 'yellow';
 
                         return (
                             <div key={`day-${day}`} className={`calendar-day-cell ${isToday ? 'today' : ''}`}>
                                 <span className="day-number">{day}</span>
                                 <div className="progress-bar-small">
-                                    <div className={`progress-bar-small-inner ${progressBarClass}`} style={{ width: `${progress}%` }}></div>
+                                    <div className={`progress-bar-small-inner ${progressBarClass}`} style={{ width: `${dayProgress}%` }}></div>
                                 </div>
-                                {day % 3 === 0 && <span className="event-text">Project Due</span>}
-                                {day % 5 === 0 && <span className="event-text">Exam Study</span>}
+                                {dayTasks.slice(0, 2).map(task => ( // Show first 2 tasks
+                                    <span key={task.id} className="event-text">{task.name}</span>
+                                ))}
+                                {dayTasks.length > 2 && <span className="event-text">...</span>}
                             </div>
                         );
                     })}
@@ -2097,21 +2483,36 @@ function MainDashboardApp() {
                     <h3 className="card-title">Add New Task</h3>
                     <div className="input-group">
                         <label htmlFor="taskName">Task Name</label>
-                        <input type="text" id="taskName" placeholder="e.g., Complete Calculus Assignment" />
+                        <input
+                            type="text"
+                            id="taskName"
+                            placeholder="e.g., Complete Calculus Assignment"
+                            value={newTaskName}
+                            onChange={(e) => setNewTaskName(e.target.value)}
+                        />
                     </div>
                     <div className="input-group-grid">
                         <div className="input-group">
                             <label htmlFor="taskCategory">Category</label>
-                            <select id="taskCategory">
+                            <select
+                                id="taskCategory"
+                                value={newTaskCategory}
+                                onChange={(e) => setNewTaskCategory(e.target.value)}
+                            >
                                 <option value="">Select Category</option>
                                 <option value="Academics">Academics</option>
                                 <option value="Personal">Personal</option>
                                 <option value="Work">Work</option>
+                                <option value="Assessment">Assessment</option> {/* Added for assessments */}
                             </select>
                         </div>
                         <div className="input-group">
                             <label htmlFor="taskPriority">Priority</label>
-                            <select id="taskPriority">
+                            <select
+                                id="taskPriority"
+                                value={newTaskPriority}
+                                onChange={(e) => setNewTaskPriority(e.target.value)}
+                            >
                                 <option value="Low">Low</option>
                                 <option value="Medium">Medium</option>
                                 <option value="High">High</option>
@@ -2119,39 +2520,72 @@ function MainDashboardApp() {
                         </div>
                         <div className="input-group">
                             <label htmlFor="taskDueDate">Due Date</label>
-                            <input type="date" id="taskDueDate" />
+                            <input
+                                type="date"
+                                id="taskDueDate"
+                                value={newTaskDueDate}
+                                onChange={(e) => setNewTaskDueDate(e.target.value)}
+                            />
                         </div>
                         <div className="input-group">
                             <label htmlFor="taskDueTime">Due Time</label>
-                            <input type="time" id="taskDueTime" />
+                            <input
+                                type="time"
+                                id="taskDueTime"
+                                value={newTaskDueTime}
+                                onChange={(e) => setNewTaskDueTime(e.target.value)}
+                            />
                         </div>
                     </div>
                     <div className="input-group">
                         <label htmlFor="taskDescription">Description (Optional)</label>
-                        <textarea id="taskDescription" placeholder="Add more details about this task..."></textarea>
+                        <textarea
+                            id="taskDescription"
+                            placeholder="Add more details about this task..."
+                            value={newTaskDescription}
+                            onChange={(e) => setNewTaskDescription(e.target.value)}
+                        ></textarea>
                     </div>
-                    <button className="add-button">Add Task</button>
+                    <button className="add-button" onClick={handleAddTask}>Add Task</button>
                 </div>
 
                 <div className="add-category-card box">
                     <h3 className="card-title">Add New Habit</h3>
                     <div className="input-group">
                         <label htmlFor="habitName">Habit Name</label>
-                        <input type="text" id="habitName" placeholder="e.g., Daily Reading" />
+                        <input
+                            type="text"
+                            id="habitName"
+                            placeholder="e.g., Daily Reading"
+                            value={newHabitName}
+                            onChange={(e) => setNewHabitName(e.target.value)}
+                        />
                     </div>
                     <div className="input-group">
                         <label>Repeat Days</label>
                         <div className="repeat-days-selector">
                             {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, index) => (
-                                <span key={index} className="day-dot">{day}</span>
+                                <span
+                                    key={day}
+                                    className={`day-dot ${newHabitRepeatDays.includes(day) ? 'selected' : ''}`}
+                                    onClick={() => handleToggleHabitDay(day)}
+                                >
+                                    {day}
+                                </span>
                             ))}
                         </div>
                     </div>
                     <div className="input-group">
                         <label htmlFor="habitGoal">Goal (e.g., 30 mins)</label>
-                        <input type="text" id="habitGoal" placeholder="e.g., 30 mins, 5 pages" />
+                        <input
+                            type="text"
+                            id="habitGoal"
+                            placeholder="e.g., 30 mins, 5 pages"
+                            value={newHabitGoal}
+                            onChange={(e) => setNewHabitGoal(e.target.value)}
+                        />
                     </div>
-                    <button className="add-button">Add Habit</button>
+                    <button className="add-button" onClick={handleAddHabit}>Add Habit</button>
                 </div>
             </div>
           )}
@@ -2162,63 +2596,45 @@ function MainDashboardApp() {
                 <div className="plan-summary-grid">
                     <div className="plan-summary-item progress-summary box">
                         <div className="label">Tasks Completed</div>
-                        <div className="value">75%</div>
+                        <div className="value">{productivityPercentage}%</div>
                     </div>
                     <div className="plan-summary-item time-summary box">
                         <div className="label">Study Time This Week</div>
+                        {/* Placeholder as actual study time tracking is complex */}
                         <div className="value">12h 30m</div>
                     </div>
                     <div className="plan-summary-item exams-summary box">
                         <div className="label">Upcoming Exams</div>
-                        <div className="value">3</div>
+                        <div className="value">{upcomingAssessments.length}</div>
                     </div>
                 </div>
 
                 <div className="scheduled-tasks-list">
                     <h3>Today's Study Plan</h3>
-                    <div className="scheduled-task-card box">
-                        <span className="time-slot">09:00 AM</span>
-                        <div className="task-details">
-                            <div className="task-name">Calculus Review</div>
-                            <div className="tags">
-                                <span className="tag priority-high">High Priority</span>
-                                <span className="tag custom-task">Academics</span>
+                    {todaysTasks.length > 0 ? (
+                        todaysTasks.map(task => (
+                            <div key={task.id} className="scheduled-task-card box">
+                                <span className="time-slot">{task.dueTime || 'Anytime'}</span>
+                                <div className="task-details">
+                                    <div className="task-name">{task.name}</div>
+                                    <div className="tags">
+                                        <span className={`tag priority-${task.priority.toLowerCase()}`}>
+                                            {task.priority} Priority
+                                        </span>
+                                        <span className="tag custom-task">{task.category}</span>
+                                    </div>
+                                </div>
+                                <span
+                                    className={`task-checkbox ${task.completed ? 'checked' : ''}`}
+                                    onClick={() => handleToggleTaskCompletion(task.id, task.completed)}
+                                >
+                                    {task.completed ? '✔' : ''}
+                                </span>
                             </div>
-                        </div>
-                        <span className="task-checkbox"></span>
-                    </div>
-                    <div className="scheduled-task-card box">
-                        <span className="time-slot">10:30 AM</span>
-                        <div className="task-details">
-                            <div className="task-name">Break</div>
-                            <div className="tags">
-                                <span className="tag custom-task">Personal</span>
-                            </div>
-                        </div>
-                        <span className="task-checkbox checked">✔</span>
-                    </div>
-                    <div className="scheduled-task-card box">
-                        <span className="time-slot">11:00 AM</span>
-                        <div className="task-details">
-                            <div className="task-name">Physics Homework</div>
-                            <div className="tags">
-                                <span className="tag priority-medium">Medium Priority</span>
-                                <span className="tag custom-task">Academics</span>
-                            </div>
-                        </div>
-                        <span className="task-checkbox"></span>
-                    </div>
-                    <div className="scheduled-task-card box">
-                        <span className="time-slot">02:00 PM</span>
-                        <div className="task-details">
-                            <div className="task-name">English Essay Outline</div>
-                            <div className="tags">
-                                <span className="tag priority-high">High Priority</span>
-                                <span className="tag custom-task">Academics</span>
-                            </div>
-                        </div>
-                        <span className="task-checkbox"></span>
-                    </div>
+                        ))
+                    ) : (
+                        <p className="text-gray-500 dark:text-gray-400">No tasks planned for today.</p>
+                    )}
                 </div>
             </div>
           )}
@@ -2230,19 +2646,42 @@ function MainDashboardApp() {
                     <h3 className="card-title">Add Course Grades</h3>
                     <div className="input-group">
                         <label htmlFor="courseName">Course Name</label>
-                        <input type="text" id="courseName" placeholder="e.g., Advanced Algebra" />
+                        <input
+                            type="text"
+                            id="courseName"
+                            placeholder="e.g., Advanced Algebra"
+                            value={newCourseName}
+                            onChange={(e) => setNewCourseName(e.target.value)}
+                        />
                     </div>
                     <div className="input-group-grid">
                         <div className="input-group">
                             <label htmlFor="courseCredits">Credits</label>
-                            <input type="number" id="courseCredits" placeholder="e.g., 3" min="0.5" step="0.5" />
+                            <input
+                                type="number"
+                                id="courseCredits"
+                                placeholder="e.g., 3"
+                                min="0.5"
+                                step="0.5"
+                                value={newCourseCredits}
+                                onChange={(e) => setNewCourseCredits(e.target.value)}
+                            />
                         </div>
                         <div className="input-group">
                             <label htmlFor="courseGrade">Grade (4.0 Scale)</label>
-                            <input type="number" id="courseGrade" placeholder="e.g., 3.7" min="0" max="4" step="0.01" />
+                            <input
+                                type="number"
+                                id="courseGrade"
+                                placeholder="e.g., 3.7"
+                                min="0"
+                                max="4"
+                                step="0.01"
+                                value={newCourseGrade}
+                                onChange={(e) => setNewCourseGrade(e.target.value)}
+                            />
                         </div>
                     </div>
-                    <button className="add-button">Add Course</button>
+                    <button className="add-button" onClick={handleAddCourse}>Add Course</button>
 
                     <table className="course-list">
                         <thead>
@@ -2254,29 +2693,30 @@ function MainDashboardApp() {
                             </tr>
                         </thead>
                             <tbody>
-                                <tr>
-                                    <td>Biology I</td>
-                                    <td>4</td>
-                                    <td>3.5</td>
-                                    <td><button className="remove-btn">Remove</button></td>
-                                </tr>
-                                <tr>
-                                    <td>Introduction to Psychology</td>
-                                    <td>3</td>
-                                    <td>4.0</td>
-                                    <td><button className="remove-btn">Remove</button></td>
-                                </tr>
-                                <tr>
-                                    <td>College Writing</td>
-                                    <td>3</td>
-                                    <td>3.0</td>
-                                    <td><button className="remove-btn">Remove</button></td>
-                                </tr>
+                                {courses.length > 0 ? (
+                                    courses.map(course => (
+                                        <tr key={course.id}>
+                                            <td>{course.name}</td>
+                                            <td>{course.credits}</td>
+                                            <td>{course.grade}</td>
+                                            <td>
+                                                <button
+                                                    className="remove-btn"
+                                                    onClick={() => handleRemoveCourse(course.id)}
+                                                >
+                                                    Remove
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr><td colSpan="4" className="text-gray-500 dark:text-gray-400">No courses added yet.</td></tr>
+                                )}
                             </tbody>
                     </table>
 
                     <div className="gpa-result">
-                        <span>Calculated GPA:</span> 3.58
+                        <span>Calculated GPA:</span> {calculateGPA()}
                     </div>
                 </div>
             </div>
