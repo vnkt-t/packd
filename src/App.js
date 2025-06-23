@@ -1,6 +1,5 @@
 import React, { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import './styles.css';
 import {
   getAuth,
   signInAnonymously,
@@ -20,9 +19,6 @@ import {
   getDocs,
   deleteDoc
 } from 'firebase/firestore';
-
-// Import the external CSS file
-import './styles.css';
 
 // Define Firebase configuration.
 // Replace with your actual Firebase project configuration if you're not using the Canvas environment defaults.
@@ -137,7 +133,9 @@ function FirebaseProvider({ children }) {
 const useFirebase = () => useContext(FirebaseContext);
 
 // LoginPage component for user authentication
-function LoginPage({ auth, setAuthError }) {
+function LoginPage() { // Removed direct props for auth and setAuthError, will use context
+  const { auth, authError, setAuthError } = useFirebase(); // Consume from context
+
   const handleGoogleSignIn = async () => {
     try {
       const provider = new GoogleAuthProvider();
@@ -184,7 +182,7 @@ function LoginPage({ auth, setAuthError }) {
         >
           Continue Anonymously
         </button>
-        {setAuthError && <p className="text-red-500 text-sm mt-4">{setAuthError}</p>}
+        {authError && <p className="text-red-500 text-sm mt-4">{authError}</p>}
       </div>
     </div>
   );
@@ -505,7 +503,7 @@ function MainDashboardApp() {
           )}
           {currentPage === 'add-task' && (
             <div className="page-header">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.00/svg">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M12 5V19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M5 12H19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
@@ -514,7 +512,7 @@ function MainDashboardApp() {
           )}
           {currentPage === 'plan' && (
             <div className="page-header">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.00/svg">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M16 4H8C5.79086 4 4 5.79086 4 8V16C4 18.2091 5.79086 20 8 20H16C18.2091 20 20 18.2091 20 16V8C20 5.79086 18.2091 4 16 4Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M16 8L8 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M16 16L8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -524,7 +522,7 @@ function MainDashboardApp() {
           )}
           {currentPage === 'gpa-calculator' && (
             <div className="page-header">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.00/svg">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path d="M12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                   <path d="M12 6V12L16 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
@@ -533,7 +531,7 @@ function MainDashboardApp() {
           )}
           {currentPage === 'settings' && (
             <div className="page-header">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.00/svg">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M12 6V3M12 21V18M18 12H21M3 12H6M19.07 4.93L17.66 6.34M6.34 17.66L4.93 19.07M19.07 19.07L17.66 17.66M6.34 6.34L4.93 4.93" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
@@ -695,7 +693,7 @@ function MainDashboardApp() {
                     <div className="box notes-section">
                         <h3>Quick Notes
                             <span className="edit-icon">
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.00/svg">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <path d="M11 4H4C3.44772 4 3 4.44772 3 5V20C3 20.5523 3.44772 21 4 21H19C19.5523 21 20 20.5523 20 20V13M18.5 2.5C18.8978 2.10217 19.4391 1.89506 20 1.89506C20.5609 1.89506 21.1022 2.10217 21.5 2.5C21.8978 2.89782 22.1049 3.43913 22.1049 4C22.1049 4.56087 21.8978 5.10217 21.5 5.5L12 15L8 16L9 12L18.5 2.5Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                                 </svg>
                             </span>
